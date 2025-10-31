@@ -155,6 +155,9 @@ spec:
           ports:
             - containerPort: 5432
               name: postgres
+          securityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
           env:
             - name: POSTGRESQL_REPLICATION_MODE
               value: "replica"
