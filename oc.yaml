@@ -5,208 +5,207 @@
 apiVersion: v1
 kind: Secret
 metadata:
-	name: postgres-credentials
+  name: postgres-credentials
 type: Opaque
 data:
-	# Valores base64: postgres / replicator / rep-pass
-	POSTGRESQL_PASSWORD: cG9zdGdyZXM= # postgres
-	POSTGRESQL_REPLICATION_USER: cmVwbGljYXRvcg== # replicator
-	POSTGRESQL_REPLICATION_PASSWORD: cmVwLXBhc3M= # rep-pass
+  # Valores base64: postgres / replicator / rep-pass
+  POSTGRESQL_PASSWORD: cG9zdGdyZXM= # postgres
+  POSTGRESQL_REPLICATION_USER: cmVwbGljYXRvcg== # replicator
+  POSTGRESQL_REPLICATION_PASSWORD: cmVwLXBhc3M= # rep-pass
 
 ---
 # Headless service para descubrimiento de pods (usado por StatefulSets)
 apiVersion: v1
 kind: Service
 metadata:
-	name: postgres-headless
-	labels:
-		app: postgres
+  name: postgres-headless
+  labels:
+    app: postgres
 spec:
-	clusterIP: None
-	selector:
-		app: postgres
-	ports:
-		- port: 5432
-			name: postgres
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      name: postgres
 
 ---
 # Servicio para acceder al master (nodo de escritura)
 apiVersion: v1
 kind: Service
 metadata:
-	name: postgres-primary
-	labels:
-		app: postgres
-		role: master
+  name: postgres-primary
+  labels:
+    app: postgres
+    role: master
 spec:
-	selector:
-		app: postgres
-		role: master
-	ports:
-		- port: 5432
-			targetPort: 5432
-			name: postgres
+  selector:
+    app: postgres
+    role: master
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
 
 ---
 # StatefulSet: Master (escritura)
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-	name: postgres-master
-	labels:
-		app: postgres
-		role: master
+  name: postgres-master
+  labels:
+    app: postgres
+    role: master
 spec:
-	serviceName: postgres-headless
-	replicas: 1
-	selector:
-		matchLabels:
-			app: postgres
-			role: master
-	template:
-		metadata:
-			labels:
-				app: postgres
-				role: master
-		spec:
-			containers:
-				- name: postgresql
-					image: bitnami/postgresql:15
-					imagePullPolicy: IfNotPresent
-					ports:
-						- containerPort: 5432
-							name: postgres
-					env:
-						- name: POSTGRESQL_REPLICATION_MODE
-							value: "master"
-						- name: POSTGRESQL_PASSWORD
-							valueFrom:
-								secretKeyRef:
-									name: postgres-credentials
-									key: POSTGRESQL_PASSWORD
-						- name: POSTGRESQL_REPLICATION_USER
-							valueFrom:
-								secretKeyRef:
-									name: postgres-credentials
-									key: POSTGRESQL_REPLICATION_USER
-						- name: POSTGRESQL_REPLICATION_PASSWORD
-							valueFrom:
-								secretKeyRef:
-									name: postgres-credentials
-									key: POSTGRESQL_REPLICATION_PASSWORD
-						- name: POSTGRESQL_USERNAME
-							value: "postgres"
-						- name: POSTGRESQL_DATABASE
-							value: "appdb"
-					volumeMounts:
-						- name: data
-							mountPath: /bitnami/postgresql
-					readinessProbe:
-						exec:
-							command:
-								- "bash"
-								- "-lc"
-								- "pg_isready -U $POSTGRESQL_USERNAME"
-						initialDelaySeconds: 15
-						periodSeconds: 10
-					livenessProbe:
-						exec:
-							command:
-								- "bash"
-								- "-lc"
-								- "pg_isready -U $POSTGRESQL_USERNAME"
-						initialDelaySeconds: 30
-						periodSeconds: 20
-	volumeClaimTemplates:
-		- metadata:
-				name: data
-			spec:
-				accessModes: [ "ReadWriteOnce" ]
-				resources:
-					requests:
-						storage: 10Gi
+  serviceName: postgres-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      role: master
+  template:
+    metadata:
+      labels:
+        app: postgres
+        role: master
+    spec:
+      containers:
+        - name: postgresql
+          image: bitnami/postgresql:15
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRESQL_REPLICATION_MODE
+              value: "master"
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRESQL_PASSWORD
+            - name: POSTGRESQL_REPLICATION_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRESQL_REPLICATION_USER
+            - name: POSTGRESQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRESQL_REPLICATION_PASSWORD
+            - name: POSTGRESQL_USERNAME
+              value: "postgres"
+            - name: POSTGRESQL_DATABASE
+              value: "appdb"
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+          readinessProbe:
+            exec:
+              command:
+                - "bash"
+                - "-lc"
+                - "pg_isready -U $POSTGRESQL_USERNAME"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - "bash"
+                - "-lc"
+                - "pg_isready -U $POSTGRESQL_USERNAME"
+            initialDelaySeconds: 30
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
 
 ---
 # StatefulSet: Replicas (lectura)
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-	name: postgres-replicas
-	labels:
-		app: postgres
-		role: replica
+  name: postgres-replicas
+  labels:
+    app: postgres
+    role: replica
 spec:
-	serviceName: postgres-headless
-	replicas: 2
-	selector:
-		matchLabels:
-			app: postgres
-			role: replica
-	template:
-		metadata:
-			labels:
-				app: postgres
-				role: replica
-		spec:
-			containers:
-				- name: postgresql
-					image: bitnami/postgresql:15
-					imagePullPolicy: IfNotPresent
-					ports:
-						- containerPort: 5432
-							name: postgres
-					env:
-						- name: POSTGRESQL_REPLICATION_MODE
-							value: "replica"
-						- name: POSTGRESQL_PRIMARY_HOST
-							value: "postgres-primary"
-						- name: POSTGRESQL_REPLICATION_USER
-							valueFrom:
-								secretKeyRef:
-									name: postgres-credentials
-									key: POSTGRESQL_REPLICATION_USER
-						- name: POSTGRESQL_REPLICATION_PASSWORD
-							valueFrom:
-								secretKeyRef:
-									name: postgres-credentials
-									key: POSTGRESQL_REPLICATION_PASSWORD
-						- name: POSTGRESQL_PASSWORD
-							valueFrom:
-								secretKeyRef:
-									name: postgres-credentials
-									key: POSTGRESQL_PASSWORD
-						- name: POSTGRESQL_USERNAME
-							value: "postgres"
-						- name: POSTGRESQL_DATABASE
-							value: "appdb"
-					volumeMounts:
-						- name: data
-							mountPath: /bitnami/postgresql
-					readinessProbe:
-						exec:
-							command:
-								- "bash"
-								- "-lc"
-								- "pg_isready -U $POSTGRESQL_USERNAME"
-						initialDelaySeconds: 20
-						periodSeconds: 10
-					livenessProbe:
-						exec:
-							command:
-								- "bash"
-								- "-lc"
-								- "pg_isready -U $POSTGRESQL_USERNAME"
-						initialDelaySeconds: 40
-						periodSeconds: 20
-	volumeClaimTemplates:
-		- metadata:
-				name: data
-			spec:
-				accessModes: [ "ReadWriteOnce" ]
-				resources:
-					requests:
-						storage: 10Gi
-
+  serviceName: postgres-headless
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postgres
+      role: replica
+  template:
+    metadata:
+      labels:
+        app: postgres
+        role: replica
+    spec:
+      containers:
+        - name: postgresql
+          image: bitnami/postgresql:15
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRESQL_REPLICATION_MODE
+              value: "replica"
+            - name: POSTGRESQL_PRIMARY_HOST
+              value: "postgres-primary"
+            - name: POSTGRESQL_REPLICATION_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRESQL_REPLICATION_USER
+            - name: POSTGRESQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRESQL_REPLICATION_PASSWORD
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRESQL_PASSWORD
+            - name: POSTGRESQL_USERNAME
+              value: "postgres"
+            - name: POSTGRESQL_DATABASE
+              value: "appdb"
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+          readinessProbe:
+            exec:
+              command:
+                - "bash"
+                - "-lc"
+                - "pg_isready -U $POSTGRESQL_USERNAME"
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - "bash"
+                - "-lc"
+                - "pg_isready -U $POSTGRESQL_USERNAME"
+            initialDelaySeconds: 40
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
 # Nota: esta configuración usa la imagen oficial de Bitnami que facilita el arranque
 # en modo master/replica con variables de entorno. Ajusta almacenamiento y secretos
 # a tu entorno (StorageClass, passwords, recursos). Para producción, asegura las
